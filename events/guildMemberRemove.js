@@ -1,8 +1,16 @@
 const leaveMessages = [
   "👋 {username} hat den Server verlassen. Alles Gute!",
-  "🚪 {username} ist raus. Danke für deinen Input!",
-  "😢 {username} hat uns verlassen. Bis zum nächsten Projekt!",
+  "🚪 {username} ist raus. Danke für alles!",
+  "😢 {username} hat uns verlassen. Bis bald!",
+  "🖐 {username} hat den Server verlassen. Wir sehen uns!",
+  "🚪 {username} geht, aber die Tür steht offen.",
+  "📤 {username} hat den Server verlassen. Mach’s gut!",
+  "👋 {username} ist raus. Danke, dass du dabei warst.",
+  "💼 Auf Wiedersehen, {username}. Alles Gute!",
+  "🛡 {username} hat sich abgemeldet. Bis zum nächsten Mal!",
+  "⚡ {username} hat den Server verlassen. Pass auf dich auf."
 ];
+
 
 module.exports = {
   name: "guildMemberRemove",
