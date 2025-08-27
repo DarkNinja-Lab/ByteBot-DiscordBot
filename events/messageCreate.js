@@ -1,4 +1,3 @@
-const countingGame = require('../commands/countingGame'); // Pfad anpassen
 const levelSystem = require('../utils/levelSystem');
 
 const DISBOARD_ID = "302050872383242240"; // die echte Bot-ID einsetzen
