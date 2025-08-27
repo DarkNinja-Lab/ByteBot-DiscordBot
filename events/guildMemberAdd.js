@@ -4,7 +4,18 @@ const welcomeMessages = [
   "🎉 {mention} ist beigetreten! Mach es dir bequem und hab Spaß! 🎮",
   "Hallo {mention}! Willkommen in unserer Community! 🚀",
   "🥳 {mention}, herzlich willkommen! Schön, dass du dabei bist!",
+  "✨ {mention}, willkommen an Bord! Wir freuen uns auf dich!",
+  "🙌 Hey {mention}, super, dass du hier bist! Lass uns gemeinsam Spaß haben!",
+  "🌟 {mention} joined the party! Mach dich bereit für gute Vibes!",
+  "🔥 Willkommen, {mention}! Schön, dass du Teil der Crew wirst!",
+  "🎈 {mention}, schön, dass du da bist! Auf eine geile Zeit zusammen!",
+  "😎 Yo {mention}, willkommen! Setz dich, schnapp dir was zu trinken und chill.",
+  "🍕 {mention} ist da! Hoffentlich bringst du Snacks mit 😏",
+  "💥 Achtung, {mention} hat den Server betreten! Macht Platz für Action!",
+  "🎮 {mention}, ready to level up mit uns? Willkommen!",
+  "🤘 {mention}, schön, dass du da bist! Lass uns ein bisschen Chaos verbreiten!"
 ];
+
 
 module.exports = {
   name: "guildMemberAdd",
