@@ -1,0 +1,10 @@
+version: "3.9"
+services:
+  bot:
+    build: .
+    container_name: HappyManager
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "80:80"
