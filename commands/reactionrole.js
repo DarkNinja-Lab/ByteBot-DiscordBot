@@ -5,7 +5,7 @@ const db = require('../db');
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('reactionrole')
-        .setDescription('Fügt eine Reaction Role zu einer Nachricht hinzu.')
+        .setDescription('Fügt eine Reaction Role zu einer Nachricht hinzu(Admin-Only).')
         .addStringOption(option =>
             option.setName('channel')
                 .setDescription('Channel-ID, in dem sich die Nachricht befindet.')

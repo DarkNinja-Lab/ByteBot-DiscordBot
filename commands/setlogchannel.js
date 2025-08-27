@@ -3,7 +3,7 @@ const { SlashCommandBuilder, ChannelType, PermissionsBitField } = require('disco
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('setlogchannel')
-    .setDescription('Setzt oder zeigt den Log-Kanal für Serveraktivitäten.')
+    .setDescription('Setzt oder zeigt den Log-Kanal für Serveraktivitäten(Admin-Only).')
     .addChannelOption(option =>
       option
         .setName('channel')

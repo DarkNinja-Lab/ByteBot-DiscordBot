@@ -4,7 +4,7 @@ const db = require('../db');
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('listreactionroles')
-        .setDescription('Zeigt alle gespeicherten Reaction Roles an.'),
+        .setDescription('Zeigt alle gespeicherten Reaction Roles an(Admin-Only).'),
 
     async execute(interaction) {
         // Admin-Berechtigungsprüfung

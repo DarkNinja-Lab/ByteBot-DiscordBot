@@ -5,7 +5,7 @@ const db = require('../db');  // Importiere die DB-Verbindung
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('clearmessages')
-        .setDescription('Löscht eine bestimmte Anzahl an Nachrichten.')
+        .setDescription('Löscht eine bestimmte Anzahl an Nachrichten(Admin-Only).')
         .addIntegerOption(option =>
             option.setName('anzahl')
                 .setDescription('Die Anzahl der Nachrichten, die gelöscht werden sollen.')

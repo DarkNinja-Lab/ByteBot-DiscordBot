@@ -4,7 +4,7 @@ const db = require('../db');
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('removereactionrole')
-        .setDescription('Entfernt eine Reaction Role und bereinigt die Reaktionen.')
+        .setDescription('Entfernt eine Reaction Role und bereinigt die Reaktionen(Admin-Only).')
         .addStringOption(option =>
             option.setName('channel')
                 .setDescription('Channel-ID, in dem sich die Nachricht befindet.')
