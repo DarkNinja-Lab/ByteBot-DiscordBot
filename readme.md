@@ -20,8 +20,6 @@ Ein vielseitiger **Discord Bot**, der verschiedene Funktionen bietet, um deinen 
 - **mini Games**: Count 1 - Unendlich mit Leaderboard bzw ShameTag.
 - **Bump Reminder**: Bump Reminder für Disboard.
 - **Moderation**: Automatische Moderation (z. B. für Spam, Links oder toxische Sprache), Befehle zum Stummschalten, Kicken, Bannen und Verwarnen.
-- **Kreativität**: AI-generierte Bilder oder Texte.
-
 
 ---
 

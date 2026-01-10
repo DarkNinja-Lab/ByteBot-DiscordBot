@@ -17,7 +17,6 @@ module.exports = {
             const result = await levelSystem.addXP(userId, guildId, 10, message.client); // 10 XP pro Nachricht
             if (result.levelUp) {
                 console.log(`${message.author.username} hat Level ${result.newLevel} erreicht.`);
-                const levelUpMessage = `🎉 ${message.author} hat Level ${result.newLevel} erreicht!`;
                 await message.channel.send(levelUpMessage);
             }
         } catch (error) {

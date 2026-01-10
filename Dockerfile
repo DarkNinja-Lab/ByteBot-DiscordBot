@@ -1,20 +1,11 @@
-# Basisimage
 FROM node:20-alpine
 
-# Python installieren (für yt-dlp-exec)
-RUN apk add --no-cache python3 py3-pip
+RUN apk add --no-cache python3 make g++
 
-# Arbeitsverzeichnis im Container
 WORKDIR /app
-
-# package.json und package-lock.json kopieren
 COPY package*.json ./
+RUN npm install --omit=dev
 
-# Abhängigkeiten installieren
-RUN npm install
-
-# Restliche Files reinkopieren
 COPY . .
 
-# Bot starten
 CMD ["node", "bot.js"]
