@@ -17,4 +17,5 @@ build/
 .idea/
 *.sublime-workspace
 *.sublime-project
-package-lock.json
+package-lock.json 
+
