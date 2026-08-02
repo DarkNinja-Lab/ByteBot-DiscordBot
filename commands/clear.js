@@ -1,5 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
-const { EmbedBuilder } = require('discord.js'); // Stelle sicher, dass EmbedBuilder importiert ist
+const { SlashCommandBuilder, EmbedBuilder, PermissionsBitField } = require('discord.js');
 const db = require('../db');  // Importiere die DB-Verbindung
 
 module.exports = {
@@ -13,7 +12,7 @@ module.exports = {
 
     async execute(interaction) {
         // Überprüfen, ob der Benutzer Administrator ist
-        if (!interaction.member.permissions.has('ADMINISTRATOR')) {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
             return interaction.reply({
                 content: '❌ Du hast keine Berechtigung, diesen Befehl auszuführen. Nur Administratoren können Nachrichten löschen.',
                 ephemeral: true,

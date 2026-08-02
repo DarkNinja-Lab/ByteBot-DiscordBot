@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, PermissionsBitField } = require('discord.js');
 const emoji = require('node-emoji'); // Emoji-Bibliothek importieren
 const db = require('../db');
 
@@ -24,7 +24,7 @@ module.exports = {
                 .setRequired(true)),
 
     async execute(interaction) {
-        if (!interaction.member.permissions.has('Administrator')) {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
             return interaction.reply({
                 content: '❌ Du hast keine Berechtigung, diesen Befehl auszuführen.',
                 ephemeral: true,

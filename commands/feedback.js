@@ -16,16 +16,13 @@ module.exports = {
 
         try {
             // Hole die Feedback-Einstellungen aus der Datenbank
-            const [rows] = await db.query(
+            const rows = await db.query(
                 'SELECT feedback_channel_id FROM feedback_settings WHERE guild_id = ?',
                 [guildId]
             );
 
-            // Debugging-Ausgabe, um die erhaltenen Zeilen zu überprüfen
-            console.log('Gefundene Zeilen:', rows);
-
             // Überprüfen, ob rows vorhanden ist und die feedback_channel_id gesetzt ist
-            if (!rows || !rows.feedback_channel_id) {
+            if (!rows || rows.length === 0 || !rows[0].feedback_channel_id) {
                 return interaction.reply({
                     content: '❌ Es wurde kein Feedback-Kanal festgelegt. Bitte wende dich an einen Administrator.',
                     ephemeral: true,
@@ -33,7 +30,7 @@ module.exports = {
             }
 
             // Holen des Feedback-Kanals mit der Channel-ID
-            const feedbackChannelId = rows.feedback_channel_id;  // Zugriff auf das Objekt direkt
+            const feedbackChannelId = rows[0].feedback_channel_id;
             const feedbackChannel = interaction.guild.channels.cache.get(feedbackChannelId);
 
             // Überprüfen, ob der Kanal existiert

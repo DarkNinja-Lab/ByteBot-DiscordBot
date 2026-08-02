@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, PermissionsBitField } = require('discord.js');
 const levelSystem = require('../utils/levelSystem');
 
 module.exports = {
@@ -7,7 +7,7 @@ module.exports = {
         .setDescription('Setzt die XP eines Users zurück (Admin-Only)')
         .addUserOption(option => option.setName('user').setDescription('Wähle den User').setRequired(true)),
     async execute(interaction) {
-        if (!interaction.member.permissions.has('ADMINISTRATOR')) return interaction.reply('Du hast keine Berechtigung!');
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) return interaction.reply('Du hast keine Berechtigung!');
 
         const user = interaction.options.getUser('user');
         const guildId = interaction.guild.id;
