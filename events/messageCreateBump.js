@@ -1,8 +1,6 @@
-const db = require('../db'); // Verbindung zur Datenbank
-
 module.exports = {
     name: 'messageCreate',
-    async execute(message, client) {
+    async execute(message, db) {
         // Überprüfe, ob die Nachricht vom Disboard-Bot stammt
         if (message.author.id === '302050872383242240') { // Disboard-Bot-ID
             if (message.embeds.length > 0) {
@@ -52,7 +50,7 @@ module.exports = {
                         // Sende eine Nachricht, dass der Timer gestartet wurde
                         let channel;
                         try {
-                            channel = await client.channels.fetch(channel_id);
+                            channel = await message.client.channels.fetch(channel_id);
                             if (!channel) {
                                 console.log(`⚠️ Kanal mit ID ${channel_id} konnte nicht gefunden werden.`);
                                 return;
@@ -103,10 +101,6 @@ module.exports = {
                         console.log(`🕒 Bump-Timer für Guild ${guildId} gestartet.`);
                     } catch (error) {
                         console.error(`❌ Fehler beim Aktualisieren des letzten Bump-Zeitpunkts für Guild ${guildId}:`, error);
-                        console.log(`➡️ Details:
-                        - Guild ID: ${guildId}
-                        - Channel ID: ${channel_id || 'Nicht definiert'}
-                        - Role ID: ${role_id || 'Nicht definiert'}`);
                     }
                 }
             }

@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionsBitField } = require('discord.js');
+const { SlashCommandBuilder, PermissionsBitField, ChannelType } = require('discord.js');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -21,7 +21,7 @@ module.exports = {
         const channel = interaction.options.getChannel('kanal');
         const guildId = interaction.guild.id;
 
-        if (channel.type !== 0 && channel.type !== 5) { // Nur Text- oder Ankündigungskanäle
+        if (![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type)) {
             return interaction.reply({
                 content: '❌ Bitte wähle einen gültigen Textkanal aus.',
                 ephemeral: true,

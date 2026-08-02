@@ -25,7 +25,7 @@ module.exports = {
     // Kein Kanal angegeben -> Aktuellen Log-Kanal anzeigen
     if (!channel) {
       try {
-        const [rows] = await db.query(
+        const rows = await db.query(
           'SELECT log_channel_id FROM config WHERE guild_id = ?',
           [interaction.guild.id]
         );

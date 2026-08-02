@@ -2,7 +2,7 @@ const db = require('./db');
 
 async function getConfig(key) {
     try {
-        const [rows] = await db.query('SELECT value FROM config WHERE key_name = ?', [key]);
+        const rows = await db.query('SELECT value FROM config WHERE key_name = ?', [key]);
         if (rows.length === 0) {
             console.warn(`⚠️ [WARN] Konfigurationswert nicht gefunden: ${key}`);
             return null;

@@ -142,7 +142,7 @@ client.once('ready', async () => {
 
 // Slash-Command-Handler
 client.on('interactionCreate', async interaction => {
-    if (!interaction.isCommand()) {
+    if (!interaction.isChatInputCommand()) {
         console.log('➡️ [DEBUG] Keine gültige Command-Interaktion, überspringe...');
         return;
     }
@@ -158,10 +158,15 @@ client.on('interactionCreate', async interaction => {
         await command.execute(interaction, db);
     } catch (error) {
         console.error(`❌ [ERROR] Fehler beim Ausführen des Befehls ${interaction.commandName}:`, error.message || error);
-        await interaction.reply({
+        const errorPayload = {
             content: '❌ Es gab einen Fehler beim Ausführen dieses Befehls.',
             ephemeral: true,
-        });
+        };
+        if (interaction.deferred || interaction.replied) {
+            await interaction.followUp(errorPayload);
+        } else {
+            await interaction.reply(errorPayload);
+        }
     }
 });
 

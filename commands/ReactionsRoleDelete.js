@@ -1,4 +1,5 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, PermissionsBitField } = require('discord.js');
+const emoji = require('node-emoji');
 const db = require('../db');
 
 module.exports = {
@@ -20,7 +21,7 @@ module.exports = {
 
     async execute(interaction) {
         // Admin-Berechtigungsprüfung
-        if (!interaction.member.permissions.has('Administrator')) {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
             return interaction.reply({
                 content: '❌ Du hast keine Berechtigung, diesen Befehl auszuführen.',
                 ephemeral: true,
@@ -29,10 +30,14 @@ module.exports = {
 
         const channelId = interaction.options.getString('channel');
         const messageId = interaction.options.getString('messageid');
-        let emoji = interaction.options.getString('emoji');
-
-        // Extrahiere die Emoji-ID, falls es ein benutzerdefiniertes Emoji ist
-        emoji = emoji.match(/\d+/)?.[0] || emoji;
+        const rawEmoji = interaction.options.getString('emoji');
+        const emojiIdentifier = normalizeEmojiInput(rawEmoji);
+        if (!emojiIdentifier) {
+            return interaction.reply({
+                content: '❌ Ungültiges Emoji angegeben.',
+                ephemeral: true,
+            });
+        }
 
         // Channel und Nachricht holen
         const channel = await interaction.guild.channels.fetch(channelId);
@@ -41,22 +46,22 @@ module.exports = {
         const message = await channel.messages.fetch(messageId).catch(() => null);
         if (!message) return interaction.reply({ content: '❌ Nachricht nicht gefunden.', ephemeral: true });
 
-        // Datenbankeintrag löschen
-        const sql = `
-            DELETE FROM reaction_roles
-            WHERE message_id = ? AND emoji = ?
-        `;
-        const result = await db.query(sql, [messageId, emoji]);
+        const existingRows = await db.query(
+            'SELECT role_id FROM reaction_roles WHERE message_id = ? AND emoji = ? AND guild_id = ?',
+            [messageId, emojiIdentifier, interaction.guild.id]
+        );
 
-        if (result.affectedRows === 0) {
+        if (existingRows.length === 0) {
             return interaction.reply({
-                content: `⚠️ Keine Reaction Role mit der Nachricht-ID \`${messageId}\` und dem Emoji \`${emoji}\` gefunden.`,
+                content: `⚠️ Keine Reaction Role mit der Nachricht-ID \`${messageId}\` und dem Emoji \`${emojiIdentifier}\` gefunden.`,
                 ephemeral: true,
             });
         }
 
+        const roleId = existingRows[0].role_id;
+
         // Reaktionen von der Nachricht entfernen
-        const reaction = message.reactions.cache.get(emoji);
+        const reaction = findReactionByIdentifier(message, emojiIdentifier);
         if (reaction) {
             const users = await reaction.users.fetch();
 
@@ -66,15 +71,9 @@ module.exports = {
                 // Entferne die Rolle von Benutzern, die reagiert haben
                 const member = await interaction.guild.members.fetch(user.id).catch(() => null);
                 if (member) {
-                    const sqlRole = `SELECT role_id FROM reaction_roles WHERE message_id = ? AND emoji = ?`;
-                    const roleRow = await db.query(sqlRole, [messageId, emoji]);
-                    
-                    if (roleRow.length > 0) {
-                        const roleId = roleRow[0].role_id;
-                        const role = interaction.guild.roles.cache.get(roleId);
-                        if (role && member.roles.cache.has(roleId)) {
-                            await member.roles.remove(role).catch(console.error);
-                        }
+                    const role = interaction.guild.roles.cache.get(roleId);
+                    if (role && member.roles.cache.has(roleId)) {
+                        await member.roles.remove(role).catch(console.error);
                     }
                 }
             }
@@ -83,10 +82,36 @@ module.exports = {
             await reaction.remove().catch(console.error);
         }
 
+        await db.query(
+            'DELETE FROM reaction_roles WHERE message_id = ? AND emoji = ? AND guild_id = ?',
+            [messageId, emojiIdentifier, interaction.guild.id]
+        );
+
         // Erfolgsmeldung
         interaction.reply({
-            content: `✅ Die Reaction Role mit Emoji \`${emoji}\` wurde entfernt, und alle zugehörigen Reaktionen wurden bereinigt.`,
+            content: `✅ Die Reaction Role mit Emoji \`${emojiIdentifier}\` wurde entfernt, und alle zugehörigen Reaktionen wurden bereinigt.`,
             ephemeral: true,
         });
     },
 };
+
+function normalizeEmojiInput(rawEmoji) {
+    const customMatch = rawEmoji.match(/^<a?:(\w+):\d+>$/);
+    if (customMatch) return customMatch[1];
+
+    const foundEmoji = emoji.find(rawEmoji);
+    if (foundEmoji) return foundEmoji.key;
+
+    const shortcode = rawEmoji.replace(/^:/, '').replace(/:$/, '');
+    if (emoji.get(shortcode)) return shortcode;
+
+    return null;
+}
+
+function findReactionByIdentifier(message, emojiIdentifier) {
+    const unicodeEmoji = emoji.get(emojiIdentifier);
+    return message.reactions.cache.find(reaction =>
+        reaction.emoji.name === emojiIdentifier ||
+        (!!unicodeEmoji && !reaction.emoji.id && reaction.emoji.name === unicodeEmoji)
+    );
+}
