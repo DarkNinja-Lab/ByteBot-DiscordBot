@@ -4,7 +4,12 @@ const emoji = require('node-emoji');
 module.exports = {
     name: 'messageReactionRemove',
     async execute(reaction, user) {
+        if (reaction.partial) {
+            const fetchedReaction = await reaction.fetch().catch(() => null);
+            if (!fetchedReaction) return;
+        }
         if (user.bot) return;
+        if (!reaction.message.guild) return;
 
         let emojiIdentifier;
         if (reaction.emoji.id) {
@@ -22,8 +27,8 @@ module.exports = {
         const messageId = reaction.message.id;
 
         try {
-            const sql = `SELECT * FROM reaction_roles WHERE message_id = ? AND emoji = ?`;
-            const rows = await db.query(sql, [messageId, emojiIdentifier]);
+            const sql = `SELECT * FROM reaction_roles WHERE guild_id = ? AND message_id = ? AND emoji = ?`;
+            const rows = await db.query(sql, [reaction.message.guild.id, messageId, emojiIdentifier]);
 
             if (rows.length > 0) {
                 const roleId = rows[0].role_id;
