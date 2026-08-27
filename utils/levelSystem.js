@@ -1,74 +1,368 @@
+const {
+    EmbedBuilder,
+} = require('discord.js');
+
 const db = require('../db');
 
-module.exports = {
-    // Ruft die Benutzer-Daten ab oder erstellt einen neuen Eintrag
-    async getUserData(userId, guildId) {
-        const result = await db.query('SELECT * FROM levels WHERE user_id = ? AND guild_id = ?', [userId, guildId]);
-        if (result.length === 0) {
-            await db.query('INSERT INTO levels (user_id, guild_id) VALUES (?, ?)', [userId, guildId]);
-            return { xp: 0, level: 0, isNew: true }; // Neuer Benutzer
+const MIN_XP_PER_MESSAGE = 8;
+const MAX_XP_PER_MESSAGE = 15;
+const MESSAGE_COOLDOWN_MS = 60 * 1000;
+const MIN_MESSAGE_LENGTH = 3;
+
+const xpCooldowns = new Map();
+const userQueues = new Map();
+
+async function withUserLock(key, callback) {
+    const previousJob = userQueues.get(key) || Promise.resolve();
+
+    let releaseCurrentJob;
+
+    const currentJob = new Promise(resolve => {
+        releaseCurrentJob = resolve;
+    });
+
+    userQueues.set(
+        key,
+        previousJob
+            .catch(() => null)
+            .then(() => currentJob)
+    );
+
+    await previousJob.catch(() => null);
+
+    try {
+        return await callback();
+    } finally {
+        releaseCurrentJob();
+
+        if (userQueues.get(key) === currentJob) {
+            userQueues.delete(key);
         }
-        return { ...result[0], isNew: false };
-    },
-
-    // Fügt einem Benutzer XP hinzu und prüft, ob ein Level-Up erfolgt oder ob es der erste Punkt ist
-    async addXP(userId, guildId, amount, client) {
-        const userData = await this.getUserData(userId, guildId);
-        const isNew = userData.isNew;
-        const levelPoints = await this.getLevelPoints(guildId); // Dynamische Punkte pro Level
-        const newXP = userData.xp + amount;
-        let newLevel = userData.level;
-
-        // Benutzer zum ersten Mal Punkte erhalten
-        if (isNew) {
-            // Level-Up-Kanal abrufen
-            const result = await db.query('SELECT channel_id FROM levelup_channels WHERE guild_id = ?', [guildId]);
-            const channelId = result[0]?.channel_id;
-
-            if (channelId) {
-                const channel = await client.channels.fetch(channelId).catch(() => null);
-                if (channel) {
-                    channel.send(`🎉 Willkommen <@${userId}>! Du hast gerade deinen ersten Punkt verdient. Viel Spaß beim Leveln! 🚀`);
-                }
-            }
-        }
-
-        // Überprüfen, ob ein Level-Up erfolgt
-        if (newXP >= levelPoints) {
-            newLevel += 1;
-            await db.query('UPDATE levels SET xp = ?, level = ? WHERE user_id = ? AND guild_id = ?', [newXP - levelPoints, newLevel, userId, guildId]);
-
-            // Level-Up-Kanal abrufen
-            const result = await db.query('SELECT channel_id FROM levelup_channels WHERE guild_id = ?', [guildId]);
-            const channelId = result[0]?.channel_id;
-
-            if (channelId) {
-                const channel = await client.channels.fetch(channelId).catch(() => null);
-                if (channel) {
-                    channel.send(`🎉 <@${userId}> hat Level ${newLevel} erreicht! Herzlichen Glückwunsch!`);
-                }
-            }
-
-            return { levelUp: true, newLevel };
-        } else {
-            await db.query('UPDATE levels SET xp = ? WHERE user_id = ? AND guild_id = ?', [newXP, userId, guildId]);
-            return { levelUp: false };
-        }
-    },
-
-    // Ruft die Punkte ab, die für das nächste Level benötigt werden
-    async getLevelPoints(guildId) {
-        const result = await db.query('SELECT points_per_level FROM level_settings WHERE guild_id = ?', [guildId]);
-        return result[0]?.points_per_level || 100; // Standard: 100 Punkte pro Level
-    },
-
-    // Setzt das Level und die XP eines Benutzers zurück
-    async resetUserLevel(userId, guildId) {
-        await db.query('UPDATE levels SET xp = 0, level = 0 WHERE user_id = ? AND guild_id = ?', [userId, guildId]);
-    },
-
-    // Gibt die Top 10 Benutzer des Servers zurück
-    async getLeaderboard(guildId) {
-        return await db.query('SELECT * FROM levels WHERE guild_id = ? ORDER BY level DESC, xp DESC LIMIT 10', [guildId]);
     }
+}
+
+async function getUserData(userId, guildId) {
+    const rows = await db.query(
+        `
+            SELECT id, user_id, guild_id, xp, level
+            FROM levels
+            WHERE user_id = ?
+              AND guild_id = ?
+            LIMIT 1
+        `,
+        [userId, guildId]
+    );
+
+    if (!rows?.length) {
+        return null;
+    }
+
+    return {
+        ...rows[0],
+        xp: Number(rows[0].xp) || 0,
+        level: Number(rows[0].level) || 0,
+        isNew: false,
+    };
+}
+
+async function ensureUserData(userId, guildId) {
+    await db.query(
+        `
+            INSERT INTO levels (
+                user_id,
+                guild_id,
+                xp,
+                level
+            )
+            VALUES (?, ?, 0, 0)
+            ON DUPLICATE KEY UPDATE
+                user_id = VALUES(user_id),
+                guild_id = VALUES(guild_id)
+        `,
+        [userId, guildId]
+    );
+
+    return getUserData(userId, guildId);
+}
+
+async function getLevelPoints(guildId) {
+    const rows = await db.query(
+        `
+            SELECT points_per_level
+            FROM level_settings
+            WHERE guild_id = ?
+            LIMIT 1
+        `,
+        [guildId]
+    );
+
+    const value = Number(rows?.[0]?.points_per_level);
+
+    return Number.isFinite(value) && value > 0
+        ? value
+        : 100;
+}
+
+function getRequiredXP(level, baseXP = 100) {
+    const safeLevel = Math.max(0, Number(level) || 0);
+    const safeBaseXP = Math.max(1, Number(baseXP) || 100);
+
+    return safeBaseXP + safeLevel * 25;
+}
+
+async function addXP(userId, guildId, amount, client) {
+    const lockKey = `${guildId}:${userId}`;
+
+    return withUserLock(lockKey, async () => {
+        const now = Date.now();
+        const lastAward = xpCooldowns.get(lockKey) || 0;
+
+        if (now - lastAward < MESSAGE_COOLDOWN_MS) {
+            return {
+                awarded: false,
+                amount: 0,
+                levelUp: false,
+                reason: 'cooldown',
+            };
+        }
+
+        const safeAmount = Math.max(0, Number(amount) || 0);
+
+        if (!safeAmount) {
+            return {
+                awarded: false,
+                amount: 0,
+                levelUp: false,
+                reason: 'invalid_amount',
+            };
+        }
+
+        const userData = await ensureUserData(userId, guildId);
+
+        if (!userData) {
+            throw new Error(
+                'Leveldaten konnten nicht erstellt oder geladen werden.'
+            );
+        }
+
+        const baseXP = await getLevelPoints(guildId);
+
+        const oldLevel = Number(userData.level) || 0;
+        let newLevel = oldLevel;
+        let newXP = Number(userData.xp) || 0;
+
+        newXP += safeAmount;
+
+        while (
+            newXP >= getRequiredXP(newLevel, baseXP)
+        ) {
+            newXP -= getRequiredXP(newLevel, baseXP);
+            newLevel++;
+        }
+
+        await db.query(
+            `
+                UPDATE levels
+                SET xp = ?,
+                    level = ?
+                WHERE user_id = ?
+                  AND guild_id = ?
+            `,
+            [newXP, newLevel, userId, guildId]
+        );
+
+        xpCooldowns.set(lockKey, now);
+
+        const levelUp = newLevel > oldLevel;
+
+        if (levelUp && client) {
+            await sendLevelUpMessage(
+                client,
+                guildId,
+                userId,
+                oldLevel,
+                newLevel,
+                newXP,
+                baseXP
+            );
+        }
+
+        return {
+            awarded: true,
+            amount: safeAmount,
+            levelUp,
+            oldLevel,
+            newLevel,
+            xp: newXP,
+            xpForNextLevel: getRequiredXP(newLevel, baseXP),
+        };
+    });
+}
+
+async function resetUserLevel(userId, guildId) {
+    await db.query(
+        `
+            UPDATE levels
+            SET xp = 0,
+                level = 0
+            WHERE user_id = ?
+              AND guild_id = ?
+        `,
+        [userId, guildId]
+    );
+
+    xpCooldowns.delete(`${guildId}:${userId}`);
+}
+
+async function deleteUserData(userId, guildId) {
+    await db.query(
+        `
+            DELETE FROM levels
+            WHERE user_id = ?
+              AND guild_id = ?
+        `,
+        [userId, guildId]
+    );
+
+    xpCooldowns.delete(`${guildId}:${userId}`);
+}
+
+async function getLeaderboard(guildId) {
+    return db.query(
+        `
+            SELECT user_id, guild_id, xp, level
+            FROM levels
+            WHERE guild_id = ?
+            ORDER BY level DESC, xp DESC
+            LIMIT 10
+        `,
+        [guildId]
+    );
+}
+
+async function getUserRank(userId, guildId) {
+    const rows = await db.query(
+        `
+            SELECT user_id
+            FROM levels
+            WHERE guild_id = ?
+            ORDER BY level DESC, xp DESC
+        `,
+        [guildId]
+    );
+
+    const index = rows.findIndex(
+        row => String(row.user_id) === String(userId)
+    );
+
+    return index === -1 ? null : index + 1;
+}
+
+async function sendLevelUpMessage(
+    client,
+    guildId,
+    userId,
+    oldLevel,
+    newLevel,
+    currentXP,
+    baseXP
+) {
+    try {
+        const rows = await db.query(
+            `
+                SELECT channel_id
+                FROM levelup_channels
+                WHERE guild_id = ?
+                LIMIT 1
+            `,
+            [guildId]
+        );
+
+        const channelId = rows?.[0]?.channel_id;
+
+        if (!channelId) {
+            return;
+        }
+
+        const channel = await client.channels
+            .fetch(channelId)
+            .catch(() => null);
+
+        if (!channel?.isTextBased()) {
+            return;
+        }
+
+        const member = await channel.guild.members
+            .fetch(userId)
+            .catch(() => null);
+
+        const avatarURL = member?.user?.displayAvatarURL({
+            extension: 'png',
+            size: 256,
+        });
+
+        const requiredXP = getRequiredXP(newLevel, baseXP);
+
+        const embed = new EmbedBuilder()
+            .setColor(0x8b5cf6)
+            .setTitle('✨ Level-Up erreicht!')
+            .setDescription(
+                `Glückwunsch <@${userId}>!\n` +
+                `Du hast **Level ${newLevel}** erreicht.`
+            )
+            .addFields(
+                {
+                    name: '🏅 Neues Level',
+                    value: `**Level ${newLevel}**`,
+                    inline: true,
+                },
+                {
+                    name: '⭐ Aktuelle XP',
+                    value: `**${currentXP} / ${requiredXP} XP**`,
+                    inline: true,
+                },
+                {
+                    name: '📈 Fortschritt',
+                    value: `**+${newLevel - oldLevel} Level**`,
+                    inline: true,
+                }
+            )
+            .setFooter({
+                text: 'ByteBot • Levelsystem',
+            })
+            .setTimestamp();
+
+        if (avatarURL) {
+            embed.setThumbnail(avatarURL);
+        }
+
+        await channel.send({
+            content: `<@${userId}>`,
+            embeds: [embed],
+            allowedMentions: {
+                users: [userId],
+            },
+        });
+    } catch (error) {
+        console.error(
+            '❌ [ERROR] Level-Up-Nachricht konnte nicht gesendet werden:',
+            error.message || error
+        );
+    }
+}
+
+module.exports = {
+    MIN_XP_PER_MESSAGE,
+    MAX_XP_PER_MESSAGE,
+    MESSAGE_COOLDOWN_MS,
+    MIN_MESSAGE_LENGTH,
+    getUserData,
+    ensureUserData,
+    addXP,
+    getLevelPoints,
+    getRequiredXP,
+    resetUserLevel,
+    deleteUserData,
+    getLeaderboard,
+    getUserRank,
 };

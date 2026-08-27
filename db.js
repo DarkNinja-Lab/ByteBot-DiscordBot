@@ -1,69 +1,122 @@
 const mysql = require('mysql2/promise');
+
 require('dotenv').config();
 
-// Erstelle den Verbindungspool für MySQL
+const debugSql = process.env.DEBUG_SQL === 'true';
+
 const pool = mysql.createPool({
     host: process.env.DB_HOST || 'localhost',
     user: process.env.DB_USER || 'root',
     password: process.env.DB_PASS || '',
-    database: process.env.DB_NAME || 'bot_database',
-    port: process.env.DB_PORT || 3306,
+    database: process.env.DB_NAME || 'discord',
+    port: Number(process.env.DB_PORT) || 3306,
+
     waitForConnections: true,
-    connectionLimit: 10,
+    connectionLimit: Number(process.env.DB_CONNECTION_LIMIT) || 10,
     queueLimit: 0,
-    connectTimeout: 10000,  // Timeout von 10 Sekunden
+
+    connectTimeout: 10_000,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 0,
 });
 
-// Teste die Verbindung beim Start
-(async () => {
+let isClosed = false;
+
+function formatSqlParams(params) {
+    if (!Array.isArray(params)) {
+        return [];
+    }
+
+    return params.map(value => {
+        if (typeof value === 'string' && value.length > 100) {
+            return `${value.slice(0, 100)}...`;
+        }
+
+        return value;
+    });
+}
+
+async function testConnection() {
+    let connection;
+
     try {
-        const connection = await pool.getConnection();
+        connection = await pool.getConnection();
+        await connection.ping();
+
         console.log('✅ [INFO] Verbindung zur Datenbank erfolgreich.');
-        connection.release();  // Verbindung nach Test freigeben
     } catch (error) {
-        console.error('❌ [ERROR] Fehler bei der Verbindung zur Datenbank:', error.message || error);
-        process.exit(1);  // Bot stoppen, wenn keine Verbindung möglich ist
-    }
-})();
+        console.error(
+            '❌ [ERROR] Datenbankverbindung fehlgeschlagen:',
+            error.message || error
+        );
 
-// Exportiere Methoden zur Abfrage und zum Pool
+        throw error;
+    } finally {
+        connection?.release();
+    }
+}
+
+async function query(sql, params = []) {
+    if (isClosed) {
+        const error = new Error(
+            'Die Datenbankverbindung wurde bereits geschlossen.'
+        );
+
+        error.code = 'DB_POOL_CLOSED';
+
+        throw error;
+    }
+
+    const safeParams = formatSqlParams(params);
+
+    if (debugSql) {
+        console.log(
+            `➡️ [DEBUG] SQL: ${sql.trim()} | Parameter: ${JSON.stringify(safeParams)}`
+        );
+    }
+
+    try {
+        const [rows] = await pool.execute(sql, params);
+        return rows;
+    } catch (error) {
+        console.error(
+            '❌ [ERROR] Fehler bei der SQL-Abfrage:',
+            {
+                code: error.code,
+                errno: error.errno,
+                sql: sql.trim(),
+                params: safeParams,
+                message: error.message || error,
+            }
+        );
+
+        throw error;
+    }
+}
+
+async function close() {
+    if (isClosed) {
+        return;
+    }
+
+    isClosed = true;
+
+    try {
+        await pool.end();
+        console.log(
+            '✅ [INFO] Alle Datenbankverbindungen wurden geschlossen.'
+        );
+    } catch (error) {
+        console.error(
+            '❌ [ERROR] Fehler beim Schließen des Datenbankpools:',
+            error.message || error
+        );
+    }
+}
+
 module.exports = {
-    /**
-     * Führt eine SQL-Abfrage aus.
-     * @param {string} sql - Die SQL-Abfrage.
-     * @param {Array} params - Parameter für die SQL-Abfrage.
-     * @returns {Promise<[]>} - Ergebnisse der Abfrage.
-     */
-    query: async (sql, params) => {
-        try {
-            console.log(`➡️ [DEBUG] Führe Abfrage aus: ${sql} mit Parametern: ${JSON.stringify(params)}`);
-            const [rows] = await pool.execute(sql, params);
-            return rows;
-        } catch (error) {
-            console.error('❌ [ERROR] Fehler bei der SQL-Abfrage:', {
-                sql,
-                params,
-                error: error.message || error,
-            });
-            throw error;  // Fehler weiter werfen
-        }
-    },
-
-    /**
-     * Liefert den Connection Pool für erweiterte Abfragen.
-     * @returns {mysql.Pool} - Der MariaDB Connection Pool.
-     */
-    pool: pool,
-
-    /**
-     * Schließt alle offenen Verbindungen zum Pool.
-     */
-    close: async () => {
-        try {
-            await pool.end();
-            console.log('✅ [INFO] Alle Verbindungen zum Pool wurden geschlossen.');
-        } catch (error) {
-            console.error('❌ [ERROR] Fehler beim Schließen des Pools:', error.message || error);
-        }
-    }
+    query,
+    pool,
+    testConnection,
+    close,
 };

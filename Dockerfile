@@ -1,11 +1,21 @@
-FROM node:20-alpine
-
-RUN apk add --no-cache python3 make g++
+FROM node:20-bookworm-slim
 
 WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    python3 \
+    make \
+    g++ \
+    curl \
+    && ln -s /usr/bin/python3 /usr/bin/python \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY package*.json ./
 RUN npm install --omit=dev
 
 COPY . .
 
-CMD ["node", "bot.js"]
+RUN mkdir -p /app/downloads
+
+CMD ["npm", "start"]

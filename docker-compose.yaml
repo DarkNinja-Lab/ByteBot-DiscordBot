@@ -1,0 +1,14 @@
+services:
+  bytebot:
+    build: .
+    container_name: bytebot-discordbot
+    restart: unless-stopped
+
+    labels:
+      net.unraid.docker.icon: "https://webdav.dynora.de/dynora_logos/dynora_logo_400x400.png"
+
+    env_file:
+      - .env
+
+    volumes:
+      - /mnt/user/appdata/bytebot/downloads:/app/downloads

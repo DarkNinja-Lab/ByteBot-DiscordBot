@@ -2,21 +2,61 @@ const levelSystem = require('../utils/levelSystem');
 
 module.exports = {
     name: 'messageCreate',
+    once: false,
+
     async execute(message) {
-        if (!message.guild) return; // DM ignorieren
-        if (message.author.bot) return; // Bots ignorieren
+        if (!message?.guild) {
+            return;
+        }
 
-        // --- 1. Level-System ---
+        if (message.author?.bot) {
+            return;
+        }
+
+        const content = String(message.content || '').trim();
+
+        if (
+            content.length <
+            levelSystem.MIN_MESSAGE_LENGTH
+        ) {
+            return;
+        }
+
         try {
-            const guildId = message.guild.id;
-            const userId = message.author.id;
+            const xp = getRandomInteger(
+                levelSystem.MIN_XP_PER_MESSAGE,
+                levelSystem.MAX_XP_PER_MESSAGE
+            );
 
-            const result = await levelSystem.addXP(userId, guildId, 10, message.client); // 10 XP pro Nachricht
-            if (result.levelUp) {
-                console.log(`${message.author.username} hat Level ${result.newLevel} erreicht.`);
+            const result = await levelSystem.addXP(
+                message.author.id,
+                message.guild.id,
+                xp,
+                message.client
+            );
+
+            if (!result.awarded) {
+                return;
             }
+
+            console.log(
+                `[LEVEL] ${message.author.tag} erhält ${result.amount} XP. ` +
+                `Level: ${result.newLevel}, XP: ${result.xp}`
+            );
         } catch (error) {
-            console.error('[ERROR] Fehler im Level-System:', error);
+            console.error(
+                '❌ [ERROR] Fehler im Levelsystem:',
+                error.message || error
+            );
         }
     },
 };
+
+function getRandomInteger(min, max) {
+    const minimum = Math.ceil(min);
+    const maximum = Math.floor(max);
+
+    return Math.floor(
+        Math.random() * (maximum - minimum + 1)
+    ) + minimum;
+}

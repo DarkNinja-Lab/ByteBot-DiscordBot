@@ -1,188 +1,478 @@
-const { Events, EmbedBuilder } = require('discord.js');
+const {
+    Events,
+    EmbedBuilder,
+    AuditLogEvent,
+} = require('discord.js');
 
-module.exports = (client, db) => {
-  // Funktion: Log-Nachricht senden
-  async function sendLog(guildId, embed) {
-    try {
-      // Hole den Log-Kanal aus der Datenbank
-      const rows = await db.query('SELECT log_channel_id FROM config WHERE guild_id = ?', [guildId]);
-      if (rows.length === 0) return; // Kein Log-Kanal gesetzt
+module.exports = client => {
+    const logChannelCache = new Map();
 
-      const logChannelId = rows[0].log_channel_id;
-      const logChannel = await client.channels.fetch(logChannelId);
-      if (logChannel) logChannel.send({ embeds: [embed] }); // Nachricht in den Log-Kanal senden
-    } catch (error) {
-      console.error('Fehler beim Senden der Log-Nachricht:', error);
+    async function getLogChannel(guild) {
+        if (!guild) {
+            return null;
+        }
+
+        const cachedChannelId = logChannelCache.get(guild.id);
+
+        if (cachedChannelId) {
+            const cachedChannel = await client.channels
+                .fetch(cachedChannelId)
+                .catch(() => null);
+
+            if (cachedChannel?.isTextBased()) {
+                return cachedChannel;
+            }
+
+            logChannelCache.delete(guild.id);
+        }
+
+        try {
+            const db = require('./db');
+
+            const rows = await db.query(
+                `
+                    SELECT log_channel_id
+                    FROM config
+                    WHERE guild_id = ?
+                    LIMIT 1
+                `,
+                [guild.id]
+            );
+
+            const channelId = rows?.[0]?.log_channel_id;
+
+            if (!channelId) {
+                return null;
+            }
+
+            const channel = await client.channels
+                .fetch(channelId)
+                .catch(() => null);
+
+            if (!channel?.isTextBased()) {
+                return null;
+            }
+
+            logChannelCache.set(guild.id, channel.id);
+
+            return channel;
+        } catch (error) {
+            console.error(
+                '❌ [ERROR] Log-Kanal konnte nicht geladen werden:',
+                error.message || error
+            );
+
+            return null;
+        }
     }
-  }
 
-  // 1. Nachricht gelöscht
-  client.on(Events.MessageDelete, async (message) => {
-    if (message.partial) return;
-    const embed = new EmbedBuilder()
-      .setColor('#FF6347')
-      .setTitle('🗑️ Nachricht gelöscht')
-      .setDescription(`**Benutzer**: ${message.author.tag}\n**Inhalt**: "${message.content}"`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Log' });
+    async function sendLog(guild, embed) {
+        if (!guild || !embed) {
+            return;
+        }
 
-    await sendLog(message.guild.id, embed);
-  });
+        try {
+            const channel = await getLogChannel(guild);
 
-  // 2. Nachricht bearbeitet
-  client.on(Events.MessageUpdate, async (oldMessage, newMessage) => {
-    if (oldMessage.partial || newMessage.partial || oldMessage.content === newMessage.content) return;
-    const embed = new EmbedBuilder()
-      .setColor('#FFD700')
-      .setTitle('✏️ Nachricht bearbeitet')
-      .setDescription(`**Benutzer**: ${oldMessage.author.tag}\n**Vorher**: "${oldMessage.content}"\n**Nachher**: "${newMessage.content}"`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Log' });
+            if (!channel) {
+                return;
+            }
 
-    await sendLog(oldMessage.guild.id, embed);
-  });
-
-  // 3. Neuer Benutzer beitritt
-  client.on(Events.GuildMemberAdd, async (member) => {
-    const embed = new EmbedBuilder()
-      .setColor('#32CD32')
-      .setTitle('👋 Neuer Benutzer beigetreten')
-      .setDescription(`**Benutzer**: ${member.user.tag}`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Log' });
-
-    await sendLog(member.guild.id, embed);
-  });
-
-  // 4. Benutzername geändert (Nickname)
-  client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
-    if (oldMember.nickname !== newMember.nickname) {
-      const embed = new EmbedBuilder()
-        .setColor('#FFD700')
-        .setTitle('✏️ Benutzername geändert')
-        .setDescription(`**Benutzer**: ${oldMember.user.tag}\n**Vorheriger Nickname**: ${oldMember.nickname || 'Keiner'}\n**Neuer Nickname**: ${newMember.nickname || 'Keiner'}`)
-        .setTimestamp()
-        .setFooter({ text: 'Bot Log' });
-
-      await sendLog(oldMember.guild.id, embed);
+            await channel.send({
+                embeds: [embed],
+            });
+        } catch (error) {
+            console.error(
+                '❌ [ERROR] Log-Nachricht konnte nicht gesendet werden:',
+                error.message || error
+            );
+        }
     }
-  });
 
-  // 5. Benutzer stumm geschaltet/entstummt (VoiceStateUpdate)
-  client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
-    if (oldState.selfMute !== newState.selfMute) {
-      const embed = new EmbedBuilder()
-        .setColor('#FF6347')
-        .setTitle('🔊 Stummschaltung geändert')
-        .setDescription(`**Benutzer**: ${newState.member.user.tag}\n**Stumm geschaltet**: ${newState.selfMute ? 'Ja' : 'Nein'}`)
-        .setTimestamp()
-        .setFooter({ text: 'Bot Log' });
-
-      await sendLog(newState.guild.id, embed);
+    function createEmbed(guild, color, title) {
+        return new EmbedBuilder()
+            .setColor(color)
+            .setTitle(title)
+            .setFooter({
+                text: guild?.name
+                    ? `${guild.name} • ByteBot-Logs`
+                    : 'ByteBot-Logs',
+            })
+            .setTimestamp();
     }
-  });
 
-  // 6. Emoji hinzugefügt
-  client.on(Events.EmojiCreate, async (emoji) => {
-    const embed = new EmbedBuilder()
-      .setColor('#8A2BE2')
-      .setTitle('😊 Neuer Emoji hinzugefügt')
-      .setDescription(`**Emoji**: ${emoji.name}\n**Emoji ID**: ${emoji.id}`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Log' });
+    function shorten(value, maxLength = 900) {
+        const text = String(value || '').trim();
 
-    await sendLog(emoji.guild.id, embed);
-  });
+        if (!text) {
+            return '*Kein Inhalt*';
+        }
 
-  // 7. Emoji gelöscht
-  client.on(Events.EmojiDelete, async (emoji) => {
-    const embed = new EmbedBuilder()
-      .setColor('#8B0000')
-      .setTitle('❌ Emoji gelöscht')
-      .setDescription(`**Emoji**: ${emoji.name}\n**Emoji ID**: ${emoji.id}`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Log' });
+        if (text.length <= maxLength) {
+            return text;
+        }
 
-    await sendLog(emoji.guild.id, embed);
-  });
-
-  // 8. Reaktion hinzugefügt
-  client.on(Events.MessageReactionAdd, async (reaction, user) => {
-    if (reaction.partial) await reaction.fetch();
-    const embed = new EmbedBuilder()
-      .setColor('#00FF00')
-      .setTitle('👍 Reaktion hinzugefügt')
-      .setDescription(`**Benutzer**: ${user.tag}\n**Nachricht**: "${reaction.message.content}"\n**Reaktion**: ${reaction.emoji.name}`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Log' });
-
-    await sendLog(reaction.message.guild.id, embed);
-  });
-
-  // 9. Reaktion entfernt
-  client.on(Events.MessageReactionRemove, async (reaction, user) => {
-    if (reaction.partial) await reaction.fetch();
-    const embed = new EmbedBuilder()
-      .setColor('#FF0000')
-      .setTitle('👎 Reaktion entfernt')
-      .setDescription(`**Benutzer**: ${user.tag}\n**Nachricht**: "${reaction.message.content}"\n**Reaktion**: ${reaction.emoji.name}`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Log' });
-
-    await sendLog(reaction.message.guild.id, embed);
-  });
-
-  // 10. Benutzer verlässt den Server oder wird gekickt
-  client.on(Events.GuildMemberRemove, async (member) => {
-    try {
-      const auditLogs = await member.guild.fetchAuditLogs({ type: 'MEMBER_KICK', limit: 1 });
-      const kickLog = auditLogs.entries.find(entry => entry.target.id === member.id);
-
-      if (kickLog) {
-        const embedKick = new EmbedBuilder()
-          .setColor('#FFA500')
-          .setTitle('❌ Benutzer gekickt')
-          .setDescription(`**Benutzer**: ${member.user.tag}\n**Von**: ${kickLog.executor.tag}`)
-          .setTimestamp()
-          .setFooter({ text: 'Bot Log' });
-
-        await sendLog(member.guild.id, embedKick);
-      } else {
-        const embedLeave = new EmbedBuilder()
-          .setColor('#FFD700')
-          .setTitle('🚪 Benutzer hat den Server verlassen')
-          .setDescription(`**Benutzer**: ${member.user.tag}`)
-          .setTimestamp()
-          .setFooter({ text: 'Bot Log' });
-
-        await sendLog(member.guild.id, embedLeave);
-      }
-    } catch (error) {
-      console.error('Fehler beim Abrufen der Audit-Logs:', error);
+        return `${text.slice(0, maxLength - 3)}...`;
     }
-  });
 
-  // 11. Benutzer gebannt
-  client.on(Events.GuildBanAdd, async (ban) => {
-    const embed = new EmbedBuilder()
-      .setColor('#DC143C')
-      .setTitle('⛔ Benutzer gebannt')
-      .setDescription(`**Benutzer**: ${ban.user.tag}`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Log' });
+    function messageLink(message) {
+        if (
+            !message?.guild?.id ||
+            !message?.channel?.id ||
+            !message?.id
+        ) {
+            return null;
+        }
 
-    await sendLog(ban.guild.id, embed);
-  });
+        return `https://discord.com/channels/${message.guild.id}/${message.channel.id}/${message.id}`;
+    }
 
-  // 12. Benutzer entbannt
-  client.on(Events.GuildBanRemove, async (ban) => {
-    const embed = new EmbedBuilder()
-      .setColor('#32CD32')
-      .setTitle('✅ Benutzer entbannt')
-      .setDescription(`**Benutzer**: ${ban.user.tag}`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Log' });
+    client.on(Events.MessageDelete, async message => {
+        if (!message?.guild) {
+            return;
+        }
 
-    await sendLog(ban.guild.id, embed);
-  });
+        const embed = createEmbed(
+            message.guild,
+            0xef4444,
+            '🗑️ Nachricht gelöscht'
+        ).addFields(
+            {
+                name: '👤 Benutzer',
+                value:
+                    `${message.author?.tag || 'Unbekannt'}\n` +
+                    `ID: \`${message.author?.id || 'unbekannt'}\``,
+                inline: false,
+            },
+            {
+                name: '💬 Inhalt',
+                value: shorten(message.content),
+                inline: false,
+            }
+        );
+
+        const link = messageLink(message);
+
+        if (link) {
+            embed.setURL(link);
+        }
+
+        await sendLog(message.guild, embed);
+    });
+
+    client.on(
+        Events.MessageUpdate,
+        async (oldMessage, newMessage) => {
+            if (
+                !oldMessage?.guild ||
+                !newMessage?.guild ||
+                oldMessage.partial ||
+                newMessage.partial ||
+                oldMessage.content === newMessage.content
+            ) {
+                return;
+            }
+
+            const embed = createEmbed(
+                newMessage.guild,
+                0xf59e0b,
+                '✏️ Nachricht bearbeitet'
+            ).addFields(
+                {
+                    name: '👤 Benutzer',
+                    value:
+                        `${oldMessage.author?.tag || 'Unbekannt'}\n` +
+                        `ID: \`${oldMessage.author?.id || 'unbekannt'}\``,
+                    inline: false,
+                },
+                {
+                    name: '⬅️ Vorher',
+                    value: shorten(oldMessage.content),
+                    inline: false,
+                },
+                {
+                    name: '➡️ Nachher',
+                    value: shorten(newMessage.content),
+                    inline: false,
+                }
+            );
+
+            const link = messageLink(newMessage);
+
+            if (link) {
+                embed.setURL(link);
+            }
+
+            await sendLog(newMessage.guild, embed);
+        }
+    );
+
+    client.on(Events.GuildMemberAdd, async member => {
+        if (!member?.guild || !member?.user) {
+            return;
+        }
+
+        const embed = createEmbed(
+            member.guild,
+            0x22c55e,
+            '👋 Neues Mitglied beigetreten'
+        )
+            .setThumbnail(
+                member.user.displayAvatarURL({
+                    extension: 'png',
+                    size: 256,
+                })
+            )
+            .addFields(
+                {
+                    name: '👤 Benutzer',
+                    value:
+                        `${member.user.tag}\n` +
+                        `ID: \`${member.user.id}\``,
+                    inline: false,
+                },
+                {
+                    name: '👥 Mitglieder',
+                    value: `${member.guild.memberCount || 'unbekannt'}`,
+                    inline: true,
+                }
+            );
+
+        await sendLog(member.guild, embed);
+    });
+
+    client.on(
+        Events.GuildMemberUpdate,
+        async (oldMember, newMember) => {
+            if (!oldMember?.guild || !newMember?.user) {
+                return;
+            }
+
+            if (oldMember.nickname === newMember.nickname) {
+                return;
+            }
+
+            const embed = createEmbed(
+                newMember.guild,
+                0xf59e0b,
+                '✏️ Nickname geändert'
+            ).addFields(
+                {
+                    name: '👤 Benutzer',
+                    value:
+                        `${newMember.user.tag}\n` +
+                        `ID: \`${newMember.user.id}\``,
+                    inline: false,
+                },
+                {
+                    name: '⬅️ Vorher',
+                    value: oldMember.nickname || '*Keiner*',
+                    inline: true,
+                },
+                {
+                    name: '➡️ Nachher',
+                    value: newMember.nickname || '*Keiner*',
+                    inline: true,
+                }
+            );
+
+            await sendLog(newMember.guild, embed);
+        }
+    );
+
+    client.on(
+        Events.VoiceStateUpdate,
+        async (oldState, newState) => {
+            const member = newState?.member || oldState?.member;
+
+            if (!member?.guild || !member?.user) {
+                return;
+            }
+
+            if (oldState.selfMute === newState.selfMute) {
+                return;
+            }
+
+            const embed = createEmbed(
+                member.guild,
+                0x3b82f6,
+                '🎙️ Mikrofonstatus geändert'
+            ).addFields({
+                name: '👤 Benutzer',
+                value:
+                    `${member.user.tag}\n` +
+                    `ID: \`${member.user.id}\``,
+                inline: false,
+            });
+
+            await sendLog(member.guild, embed);
+        }
+    );
+
+    client.on(Events.GuildEmojiCreate, async emoji => {
+        if (!emoji?.guild) {
+            return;
+        }
+
+        const embed = createEmbed(
+            emoji.guild,
+            0xa855f7,
+            '😊 Emoji erstellt'
+        ).addFields(
+            {
+                name: 'Emoji',
+                value: emoji.toString(),
+                inline: true,
+            },
+            {
+                name: 'Name',
+                value: `\`${emoji.name || 'unbekannt'}\``,
+                inline: true,
+            },
+            {
+                name: 'ID',
+                value: `\`${emoji.id}\``,
+                inline: true,
+            }
+        );
+
+        await sendLog(emoji.guild, embed);
+    });
+
+    client.on(Events.GuildEmojiDelete, async emoji => {
+        if (!emoji?.guild) {
+            return;
+        }
+
+        const embed = createEmbed(
+            emoji.guild,
+            0x7f1d1d,
+            '🗑️ Emoji gelöscht'
+        ).addFields(
+            {
+                name: 'Name',
+                value: `\`${emoji.name || 'unbekannt'}\``,
+                inline: true,
+            },
+            {
+                name: 'ID',
+                value: `\`${emoji.id}\``,
+                inline: true,
+            }
+        );
+
+        await sendLog(emoji.guild, embed);
+    });
+
+    client.on(Events.GuildMemberRemove, async member => {
+        if (!member?.guild || !member?.user) {
+            return;
+        }
+
+        try {
+            const auditLogs = await member.guild.fetchAuditLogs({
+                type: AuditLogEvent.MemberKick,
+                limit: 5,
+            });
+
+            const kickEntry = auditLogs.entries.find(entry => {
+                if (String(entry?.target?.id) !== String(member.id)) {
+                    return false;
+                }
+
+                return (
+                    Date.now() - entry.createdTimestamp < 15_000
+                );
+            });
+
+            if (kickEntry) {
+                const embed = createEmbed(
+                    member.guild,
+                    0xf97316,
+                    '👢 Mitglied gekickt'
+                ).addFields(
+                    {
+                        name: '👤 Benutzer',
+                        value:
+                            `${member.user.tag}\n` +
+                            `ID: \`${member.user.id}\``,
+                        inline: false,
+                    },
+                    {
+                        name: '🛡️ Ausgeführt von',
+                        value:
+                            kickEntry.executor?.tag ||
+                            '*Unbekannt*',
+                        inline: true,
+                    }
+                );
+
+                await sendLog(member.guild, embed);
+                return;
+            }
+        } catch (error) {
+            console.warn(
+                '⚠️ [WARN] Audit-Logs konnten nicht geprüft werden:',
+                error.message || error
+            );
+        }
+
+        const embed = createEmbed(
+            member.guild,
+            0xfacc15,
+            '🚪 Mitglied hat den Server verlassen'
+        ).addFields({
+            name: '👤 Benutzer',
+            value:
+                `${member.user.tag}\n` +
+                `ID: \`${member.user.id}\``,
+            inline: false,
+        });
+
+        await sendLog(member.guild, embed);
+    });
+
+    client.on(Events.GuildBanAdd, async ban => {
+        if (!ban?.guild || !ban?.user) {
+            return;
+        }
+
+        const embed = createEmbed(
+            ban.guild,
+            0xdc2626,
+            '⛔ Benutzer gebannt'
+        ).addFields({
+            name: '👤 Benutzer',
+            value:
+                `${ban.user.tag}\n` +
+                `ID: \`${ban.user.id}\``,
+            inline: false,
+        });
+
+        await sendLog(ban.guild, embed);
+    });
+
+    client.on(Events.GuildBanRemove, async ban => {
+        if (!ban?.guild || !ban?.user) {
+            return;
+        }
+
+        const embed = createEmbed(
+            ban.guild,
+            0x16a34a,
+            '✅ Benutzer entbannt'
+        ).addFields({
+            name: '👤 Benutzer',
+            value:
+                `${ban.user.tag}\n` +
+                `ID: \`${ban.user.id}\``,
+            inline: false,
+        });
+
+        await sendLog(ban.guild, embed);
+    });
+
+    console.log(
+        '✅ [INFO] Logging-System erfolgreich initialisiert.'
+    );
 };

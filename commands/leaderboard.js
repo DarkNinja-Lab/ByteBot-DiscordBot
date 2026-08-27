@@ -1,42 +1,88 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const {
+    SlashCommandBuilder,
+    EmbedBuilder,
+} = require('discord.js');
+
 const levelSystem = require('../utils/levelSystem');
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('leaderboard')
-        .setDescription('Zeigt die Level-Top-Liste'),
+        .setDescription('Zeigt die besten Mitglieder des Servers an.'),
+
     async execute(interaction) {
         const guildId = interaction.guild.id;
-        const leaderboard = await levelSystem.getLeaderboard(guildId);
 
-        if (leaderboard.length === 0) {
+        const leaderboard = await levelSystem.getLeaderboard(
+            guildId
+        );
+
+        if (!leaderboard || leaderboard.length === 0) {
+            const emptyEmbed = new EmbedBuilder()
+                .setColor(0xf59e0b)
+                .setTitle('🏆 Server-Leaderboard')
+                .setDescription(
+                    'Aktuell hat noch niemand XP gesammelt.'
+                )
+                .setFooter({
+                    text: `${interaction.guild.name} • Levelsystem`,
+                })
+                .setTimestamp();
+
             return interaction.reply({
-                content: 'Noch niemand hat XP gesammelt!',
-                ephemeral: true
+                embeds: [emptyEmbed],
             });
         }
 
-        // Emojis für die Top-3
         const rankEmojis = ['🥇', '🥈', '🥉'];
 
-        // Füge Felder für das Embed hinzu
-        const fields = leaderboard.map((user, index) => {
-            const rankEmoji = rankEmojis[index] || `#${index + 1}`; // Emoji für Top 3, danach numerisch
-            return {
-                name: `${rankEmoji} Platz`,
-                value: `<@${user.user_id}> - **Level ${user.level}** (${user.xp} XP)`,
-                inline: false
-            };
-        });
+        const leaderboardText = leaderboard
+            .map((entry, index) => {
+                const position = index + 1;
+                const rankIcon =
+                    rankEmojis[index] || `\`#${position}\``;
 
-        // Embed erstellen
+                return (
+                    `${rankIcon} <@${entry.user_id}>\n` +
+                    `> **Level ${entry.level}** • ${entry.xp} XP`
+                );
+            })
+            .join('\n\n');
+
+        const ownEntry = leaderboard.find(
+            entry =>
+                String(entry.user_id) ===
+                String(interaction.user.id)
+        );
+
         const embed = new EmbedBuilder()
-            .setColor('#FFD700') // Gold für das Leaderboard
-            .setTitle('🏆 Server Leaderboard')
-            .addFields(fields)
-            .setFooter({ text: `Angefordert von ${interaction.user.username}`, iconURL: interaction.user.displayAvatarURL() })
+            .setColor(0xf1c40f)
+            .setAuthor({
+                name: 'SERVER-LEADERBOARD',
+                iconURL: interaction.guild.iconURL({
+                    extension: 'png',
+                    size: 256,
+                }) || undefined,
+            })
+            .setTitle('🏆 Die aktivsten Mitglieder')
+            .setDescription(
+                'Hier siehst du die Top 10 des Servers.\n\n' +
+                leaderboardText
+            )
+            .addFields({
+                name: '📌 Dein aktueller Stand',
+                value: ownEntry
+                    ? `Du bist in den Top 10 auf **Level ${ownEntry.level}** mit **${ownEntry.xp} XP**.`
+                    : 'Du bist aktuell noch nicht in den Top 10.',
+                inline: false,
+            })
+            .setFooter({
+                text: `${interaction.guild.name} • Aktualisiert`,
+            })
             .setTimestamp();
 
-        interaction.reply({ embeds: [embed] });
-    }
+        return interaction.reply({
+            embeds: [embed],
+        });
+    },
 };
